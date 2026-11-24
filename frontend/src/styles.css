@@ -135,3 +135,23 @@ th { background: #e4e8ee; }
 .msg { margin: 0.5rem 0; color: var(--ok); }
 .err { margin: 0.5rem 0; color: var(--danger); }
 .muted { color: #66707c; font-size: 0.86rem; }
+.receipt {
+  background: #111820;
+  color: #d8f3dc;
+  padding: 0.7rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  margin: 0.5rem 0;
+}
+.bad-row { background: #f3c7bf !important; }
+.selected-row { outline: 2px solid var(--rust); }
+.link {
+  border: 0;
+  background: transparent;
+  color: var(--rust-deep);
+  text-decoration: underline;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.violations { margin-top: 0.8rem; }

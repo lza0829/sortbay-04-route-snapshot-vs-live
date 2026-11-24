@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { api } from '../api'
+import { emitDataChanged, useDataChanged } from '../refresh'
 
 export default function Diverts() {
   const [batches, setBatches] = useState([])
@@ -11,11 +12,13 @@ export default function Diverts() {
     const s = await api('/扫描')
     setScans(s.filter((x) => x.status === '已路由' || x.status === '已入袋'))
   }
-  useEffect(() => { load().catch((e) => setErr(e.message)) }, [])
+  useDataChanged(load)
   const create = async () => {
     try {
       await api('/回流批次', { method: 'POST', body: JSON.stringify({ 扫描编号: Number(scanId) }) })
-      load()
+      setScanId('')
+      await load()
+      emitDataChanged({ type: 'divert-created' })
     } catch (e) { setErr(e.message) }
   }
   return (

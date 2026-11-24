@@ -1,25 +1,48 @@
 from __future__ import annotations
+from datetime import date
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from app.db import db, rows_to_list, row_to_dict
+from pydantic import BaseModel, Field, model_validator
+from app.db import db, rows_to_list, row_to_dict, write_db
 from app.services.common import audit, now_str
 
 router = APIRouter(tags=["班次"])
 
 
 class ShiftIn(BaseModel):
-    营业日: str = Field(min_length=8)
+    营业日: str = ""
     班次名: str = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_english_aliases(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if not data.get("营业日"):
+            data["营业日"] = (
+                data.get("business_day")
+                or data.get("day")
+                or data.get("date")
+                or date.today().isoformat()
+            )
+        if not data.get("班次名"):
+            data["班次名"] = data.get("shift_name") or data.get("name") or ""
+        return data
 
 
 @router.get("/班次")
+@router.get("/shifts")
 def list_shifts():
     with db() as conn:
         return rows_to_list(conn.execute("SELECT * FROM shifts ORDER BY id DESC").fetchall())
 
 
 @router.get("/班次/对账")
-def reconcile(shift_id: int | None = None):
+@router.get("/shifts/reconcile")
+@router.get("/shifts/reconciliation")
+def reconcile(shift_id: int | None = None, 班次编号: int | None = None):
+    shift_id = shift_id if shift_id is not None else 班次编号
     with db() as conn:
         if shift_id is None:
             shift = conn.execute("SELECT * FROM shifts ORDER BY id DESC LIMIT 1").fetchone()
@@ -56,8 +79,9 @@ def reconcile(shift_id: int | None = None):
 
 
 @router.post("/班次")
+@router.post("/shifts")
 def create_shift(body: ShiftIn):
-    with db() as conn:
+    with write_db() as conn:
         open_one = conn.execute("SELECT id FROM shifts WHERE sealed=0").fetchone()
         if open_one:
             raise HTTPException(400, "仍有未封班班次，先封班再开新班")
@@ -77,8 +101,9 @@ def create_shift(body: ShiftIn):
 
 
 @router.post("/班次/{shift_id}/封班")
+@router.post("/shifts/{shift_id}/seal")
 def seal_shift(shift_id: int):
-    with db() as conn:
+    with write_db() as conn:
         shift = conn.execute("SELECT * FROM shifts WHERE id=?", (shift_id,)).fetchone()
         if not shift:
             raise HTTPException(404, "班次不存在")

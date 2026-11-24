@@ -1,12 +1,19 @@
 from __future__ import annotations
+import os
 from datetime import date, datetime
 
-from app.db import db, init_db
+from app.db import init_db, write_db
 
 
-def seed_if_empty() -> None:
+def seed_if_empty(include_demo_scan: bool | None = None) -> None:
     init_db()
-    with db() as conn:
+    if include_demo_scan is None:
+        include_demo_scan = os.getenv(
+            "SORTBAY_SEED_DEMO_SCANS", "1"
+        ).strip().lower() not in ("0", "false", "no", "off")
+    # BEGIN IMMEDIATE serializes concurrent first-boot seeds across processes;
+    # re-check rows after acquiring the write transaction.
+    with write_db() as conn:
         n = conn.execute("SELECT COUNT(*) AS c FROM lines").fetchone()["c"]
         if n:
             return
@@ -44,21 +51,44 @@ def seed_if_empty() -> None:
         ]
         for dest, chute in routes:
             conn.execute(
-                "INSERT INTO route_rules(dest_code, chute_id, note) VALUES (?, ?, ?)",
+                "INSERT INTO route_rules(dest_code, chute_id, current_version, note) VALUES (?, ?, 1, ?)",
                 (dest, chute_ids[chute], "种子路由"),
+            )
+            rule_id = conn.execute(
+                "SELECT id FROM route_rules WHERE dest_code=?", (dest,)
+            ).fetchone()["id"]
+            conn.execute(
+                """
+                INSERT INTO route_rule_versions
+                  (rule_id, dest_code, version, chute_id, action, changed_at, note)
+                VALUES (?, ?, 1, ?, '新建路由', ?, '种子路由')
+                """,
+                (rule_id, dest, chute_ids[chute], now),
             )
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?), (?, ?)",
             ("口门软容量提示", "120", "回流自动再路由", "否"),
         )
-        # 预置一笔待路由扫描，方便冒烟看见分布
-        conn.execute(
-            """
-            INSERT INTO scans(barcode, dest_code, shift_id, line_id, status, scanned_at, note)
-            VALUES (?, ?, ?, ?, '待路由', ?, ?)
-            """,
-            ("YB202611240001", "110", shift_id, line_id, now, "种子待路由"),
-        )
+        if include_demo_scan:
+            # 预置一笔待路由扫描，方便冒烟看见分布；装载瞬间同时固化拟落口快照。
+            planned_rule = conn.execute(
+                "SELECT id, chute_id, current_version FROM route_rules WHERE dest_code='110'"
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO scans(
+                  barcode, dest_code, shift_id, line_id, status, scanned_at, note,
+                  route_policy, planned_chute_id, snapshot_rule_id,
+                  snapshot_rule_version, snapshot_at
+                )
+                VALUES (?, ?, ?, ?, '待路由', ?, ?, 'LOAD_SNAPSHOT', ?, ?, ?, ?)
+                """,
+                (
+                    "YB202611240001", "110", shift_id, line_id, now, "种子待路由",
+                    planned_rule["chute_id"], planned_rule["id"],
+                    planned_rule["current_version"], now,
+                ),
+            )
         conn.execute(
             "INSERT INTO audit_events(kind, ref_id, action, created_at, note) VALUES (?, ?, ?, ?, ?)",
             ("系统", None, "种子初始化", now, "分拣过机台"),

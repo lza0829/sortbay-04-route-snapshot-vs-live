@@ -1,13 +1,18 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { api } from '../api'
+import { emitDataChanged, useDataChanged } from '../refresh'
 
 export default function Chutes() {
   const [rows, setRows] = useState([])
   const [err, setErr] = useState('')
   const load = () => api('/口门').then(setRows).catch((e) => setErr(e.message))
-  useEffect(() => { load() }, [])
+  useDataChanged(load)
   const toggle = async (id, 状态) => {
-    try { await api(`/口门/${id}/开闭?状态=${encodeURIComponent(状态)}`, { method: 'POST' }); load() }
+    try {
+      await api(`/口门/${id}/开闭?状态=${encodeURIComponent(状态)}`, { method: 'POST' })
+      await load()
+      emitDataChanged({ type: 'chute-toggled', id })
+    }
     catch (e) { setErr(e.message) }
   }
   return (
